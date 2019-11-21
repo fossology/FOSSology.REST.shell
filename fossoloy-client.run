@@ -1,0 +1,40 @@
+#!/bin/sh -x
+
+#
+# Software Name : Fossology Helper Tools
+# Version: 1.0
+# Copyright (c) 2019 Orange Business Services
+# SPDX-License-Identifier: MIT
+#
+# This software is distributed under the MIT License
+# the text of which is available at https://spdx.org/licenses/MIT.html
+# or see the "license.txt" file for more details.
+#
+# Author: Nicolas Toussaint nicolas1.toussaint@orange.com
+# Software description: Fossology helper tools
+#
+
+# Usage:
+# fossoloy-client.run <args...>
+#
+# To automatically mount the file inside the Docker container, replace
+#   the usual '-i' option with '-I' and place it as first option.
+#
+# Example: fossoloy-client.run -I <input-file> <other args>
+#
+
+reg=registry.url # <- Configure this
+img=fossology-client
+
+
+if [ "$1" = "-I" ]
+then
+    in_file="$(readlink -f $2)"
+    shift 2
+    docker_mp="/mnt/$(basename $in_file | tr ' ' '_')"
+    mount="-v $in_file:$docker_mp:ro"
+	opt_i="-i $docker_mp"
+fi
+
+docker run $mount $reg:$img ./upload-rest.sh $opt_i "$@"
+

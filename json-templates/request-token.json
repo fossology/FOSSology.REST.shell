@@ -1,0 +1,7 @@
+{
+	"username":$user_username,
+	"password":$user_password,
+	"token_name":$token_name,
+	"token_scope":$token_scope,
+	"token_expire":$token_expire
+}

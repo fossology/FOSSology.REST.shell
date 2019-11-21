@@ -1,0 +1,24 @@
+{
+   "analysis": {
+      "bucket": true,
+      "copyright_email_author": true,
+      "ecc": true,
+      "keyword": true,
+      "mime": true,
+      "monk": true,
+      "nomos": true,
+      "package": true
+   },
+   "decider": {
+      "nomos_monk": true,
+      "bulk_reused": true,
+      "new_scanner": true
+   },
+   "reuse": {
+      "reuse_upload": $reuse_upload,
+      "reuse_group": $reuse_group,
+      "reuse_main": true,
+      "reuse_enhanced": true
+   }
+}
+
