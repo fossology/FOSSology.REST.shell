@@ -1,4 +1,4 @@
-#!/bin/sh -x
+#!/bin/sh
 
 #
 # Software Name : Fossology Helper Tools
@@ -23,7 +23,7 @@
 # Example: fossoloy-client.run -I <input-file> <other args>
 #
 
-reg=registry.url # <- Configure this
+reg=# <- Configure this
 img=fossology-client
 
 
@@ -36,5 +36,5 @@ then
 	opt_i="-i $docker_mp"
 fi
 
-docker run $mount $reg:$img ./upload-rest.sh $opt_i "$@"
+docker run --rm $mount $reg:$img ./upload-rest.sh $opt_i "$@"
 

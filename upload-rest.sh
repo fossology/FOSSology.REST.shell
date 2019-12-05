@@ -17,7 +17,7 @@
 # Exec example:
 # ./upload-rest.sh -f Sandbox/001 -i foobar-3.zip
 #                  -n fossy -p fossy
-#                  -s "https://<fqdn>/repo"
+#                  -r "https://<fqdn>/repo/api/v1"
 #
 # For HTTPS GIT clones, the script will use the following
 # environment variable, if they exist
@@ -25,7 +25,7 @@
 # GIT_PASSWORD=
 #
 
-PROG_VERSION="1.0"
+PROG_VERSION="1.3"
 token_validity_days=2
 token_scope="write"
 
@@ -33,6 +33,8 @@ debug="false"
 folder="Software Repository"
 cacert_file="$(dirname $0)/ca-certificates.crt"
 curl_insecure="false"
+
+json_templates_dir="$(dirname $0)/json-templates"
 
 _usage() {
 cat <<-EOS
@@ -58,10 +60,11 @@ Upload options:
   - Git clone URL: -u <git-url>
 
 All options:
+  -c , --description ) Upload description
   -d , --debug       ) Debug mode
   -e , --extra-debug ) Extra Debug mode
   -f , --folder      ) Folder in which the upload will be added
-  -g , --group-name  ) Fossology group
+  -g , --group-name  ) Fossology group name
   -h , --help        ) This help
   -i , --input       ) Filename to upload
   -k , --insecure    ) Skip certificate check in curl command
@@ -144,8 +147,6 @@ f_do_curl() {
         if [ -r "$cacert_file" ]
         then
             curl_cert_opt="--cacert $cacert_file"
-        else
-            f_debug "CURL: Cannot find ca-cert file '$cacert_file', ignoring."
         fi
     fi
     http_verb=$1
@@ -211,15 +212,16 @@ f_get_folder_id() {
 #  Handle arguments
 # #############################################################################
 
-OPTS=`getopt -o def:g:hi:kn:p:r:Rs:t:u:v --long api-token:,debug,extra-debug,folder:,git-url:,group-name:,help,input:,insecure,password:,rest-url:,reuse,site-url:,username:,version -n 'parse-options' -- "$@"`
+OPTS=`getopt -o c:def:g:hi:kn:p:r:Rs:t:u:v --long api-token:,debug,description:,extra-debug,folder:,git-url:,group-name:,help,input:,insecure,password:,rest-url:,reuse,site-url:,username:,version -n 'parse-options' -- "$@"`
 
 if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
 
 while true; do
   case "$1" in
+    -c | --description)  upload_description="$2" ; shift; shift ;;
     -i | --input )       input_file="$2" ; shift; shift ;;
     -u | --git-url )     input_git_url="$2" ; shift; shift ;;
-    -g | --group-name )  group_id="$2" ; shift; shift ;;
+    -g | --group-name )  group_name="$2" ; shift; shift ;;
     -f | --folder )      folder="$2" ; shift; shift ;;
     -d | --debug )       debug="true"; shift ;;
     -e | --extra-debug ) debug="true" ; extra_debug="true" ; shift ;;
@@ -248,11 +250,12 @@ site_url=$(echo "$site_url" | sed 's!/*$!!')
 JSON_REPLY_FILE=$(mktemp) || f_fatal "Cannot create temp file"
 
 cat <<EOS
+Rest Client: Version $PROG_VERSION
 
 Service URL: $site_url
 REST API   : $rest_url
 Username   : $t_usr
-Group ID   : $group_id
+Group Name : $group_name
 Token      : $(echo $t_tkn | cut -c 1-8)...
 Debug      : $debug
 Extra Debug: $extra_debug
@@ -273,27 +276,18 @@ if [ -n "$t_tkn" ]
 then
     echo "Using provided token"
 else
-    echo "No Token, trying to generate one"
+    echo "No token provided: generatating one"
     if ! echo "$t_usr:$_pwd" | grep -q "^..*:..*$"
     then
         token_name="ci-cd_$(date +%Y%m%d-%H%M%S)"
         token_expire=$(f_get_token_expire_date)
-cat <<-EOS
-== Create token:
-- Valitidy: $token_validity_days days
-- Expires : $token_expire
-- Name    : $token_name
-- Scope   : $token_scope
-
-EOS
-
         options_json=$(jq -n \
             --argjson user_username "\"$t_usr\"" \
             --argjson user_password "\"$t_pwd\"" \
             --argjson token_name    "\"$token_name\"" \
             --argjson token_scope   "\"$token_scope\"" \
             --argjson token_expire  "\"$token_expire\"" \
-            -f "json-templates/request-token.json") || \
+            -f "$json_templates_dir/request-token.json") || \
             f_fatal "JQ operation failed"
         f_do_curl POST tokens \
             -H "Content-Type: application/json" \
@@ -301,7 +295,13 @@ EOS
         t_tkn=$(jq '."Authorization"' $JSON_REPLY_FILE | sed 's/Bearer //' | tr -d '"')
         [ -z "$t_tkn" ] && f_fatal "Failed to create token"
         [ "$t_tkn" = "null" ] && f_fatal "Failed to create token"
-        echo "Token: $(echo $t_tkn | cut -c 1-16)..."
+        f_debug "Created token: $token_name"
+        f_debug "- Valitidy: $token_validity_days days"
+        f_debug "- Expires : $token_expire"
+        f_debug "- Scope   : $token_scope"
+        f_debug "<<<<"
+        f_debug "$t_tkn"
+        f_debug ">>>>"
     fi
 fi
 
@@ -358,14 +358,15 @@ echo "Folder ID  : $folder_id"
 
 f_log_part "Upload"
 
-[ -n "$group_id" ] && option_groupid="-H groupId:$group_id"
 if [ -n "$input_file" ]
 then
     echo "Upload file: $input_file"
+    [ -z "$upload_description" ] && upload_description="REST Upload - from file"
     f_debug && ls -l $input_file
-    f_do_curl POST  uploads -H "$t_auth" $option_groupid \
+    f_do_curl POST  uploads -H "$t_auth" \
+        -H "groupName:$group_name" \
         -H "folderId:$folder_id" \
-        -H "uploadDescription:REST Upload - from File" \
+        -H "uploadDescription:$upload_description" \
         -H "public:private" \
         -H "ignoreScm:true" \
         -H "Content-Type:multipart/form-data" \
@@ -374,15 +375,17 @@ then
 elif [ -n "$input_git_url" ]
 then
     echo "Upload GIT URL: $input_git_url"
+    [ -z "$upload_description" ] && upload_description="REST Upload - from VCS"
     options_json=$(jq -n \
         --argjson vcs_url "\"$input_git_url\"" \
         --argjson vcs_username "\"$GIT_USERNAME\"" \
         --argjson vcs_password "\"$GIT_PASSWORD\"" \
-        -f "json-templates/upload-vcs_auth.json") || \
+        -f "$json_templates_dir/upload-vcs_auth.json") || \
         f_fatal "JQ operation failed"
     f_do_curl POST  uploads -H "$t_auth" \
+        -H "groupName:$group_name" \
         -H "folderId:$folder_id" \
-        -H "uploadDescription:REST Upload - from VCS" \
+        -H "uploadDescription:$upload_description" \
         -H "public:private" \
         $option_json_username $option_json_password \
         -H "Content-Type:application/json" \
@@ -394,12 +397,15 @@ fi
 
 upload_id=$(cat $JSON_REPLY_FILE | jq .message)
 
-# Search the ITEM ID, only ti build the resulting Fossology browsable URL
+# Search the ITEM ID, only to build the resulting Fossology browsable URL
 # Do not do it if <site_url> was not provided
 if [ -n "$site_url" ]
 then
+    f_debug "Search for upload's item ID"
     # that's a pretty clunky way to find the item ID to build the URL, but works for now
-    f_do_curl GET search -H "$t_auth" -H "filename:$upload_name" || f_fatal "Failed to search folder"
+    f_do_curl GET search -H "$t_auth" \
+        -H "groupName:$group_name" \
+        -H "filename:$upload_name" || f_fatal "Failed to search folder"
 
     item_id=$(cat $JSON_REPLY_FILE | jq ".[-1] | select(.\"upload\".\"folderid\" == $folder_id) | .uploadTreeId")
     fossology_url="$site_url/?mod=license&upload=$upload_id&folder=$folder_id&item=$item_id"
@@ -449,16 +455,18 @@ echo "Unpack job: terminated with status '$upload_status'"
 # Scan Job
 # #############################################################################
 
-scan_options_file="json-templates/scan-options.json"
+scan_options_file="$json_templates_dir/scan-options.json"
 if [ "$reuse" = "true" ]
 then
     f_log_part "Reuse"
     # Try to guess previous upload, to use it as a base for reuse.
-    f_do_curl GET search -H "$t_auth" -H "filename:$upload_name" || fatal "Failed to search folder"
-    previous_upload_id=$(cat $JSON_REPLY_FILE | jq '.[-2].upload.id')
-    if echo "$previous_upload_id" | grep -q '^[0-9]*$'
+    f_do_curl GET search -H "$t_auth" \
+        -H "groupName:$group_name" \
+        -H "filename:$upload_name" || fatal "Failed to search folder"
+    previous_upload_id=$(cat $JSON_REPLY_FILE | jq "[.[] | .upload  | select(.folderid == $folder_id) | .id] | .[-2]")
+    if echo "$previous_upload_id" | grep -q '^[0-9][0-9]*$'
     then
-        scan_options_file="json-templates/scan-options-reuse.json"
+        scan_options_file="$json_templates_dir/scan-options-reuse.json"
         [ -z "$previous_upload_id" ] && f_fatal "Failed to find ID for reuse"
         jq_reuse_args="--argjson reuse_upload $previous_upload_id --argjson reuse_group $group_id_n"
         echo "REUSE: Previous Upload ID: $previous_upload_id"
@@ -478,6 +486,7 @@ echo "Scan jobs: starting"
 options_json=$(jq -n $jq_reuse_args -f $scan_options_file) || f_fatal "JQ operation failed"
 f_do_curl POST  jobs -H "$t_auth" \
     -H "Content-Type:application/json" \
+    -H "groupName:$group_name" \
     -H "folderId:$folder_id" \
     -H "uploadId:$upload_id" \
     -d "$options_json" || f_fatal "Failed to start scan"
