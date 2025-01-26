@@ -24,6 +24,8 @@
 # GIT_USERNAME=
 # GIT_PASSWORD=
 #
+GIT_USERNAME=${GIT_USERNAME:-}
+GIT_PASSWORD=${GIT_PASSWORD:-}
 
 PROG_VERSION="1.3"
 token_validity_days=2
@@ -387,7 +389,7 @@ then
         -H "folderId:$folder_id" \
         -H "uploadDescription:$upload_description" \
         -H "public:private" \
-        $option_json_username $option_json_password \
+       
         -H "Content-Type:application/json" \
         -d "$options_json" \
         || f_fatal "REST command failed"
